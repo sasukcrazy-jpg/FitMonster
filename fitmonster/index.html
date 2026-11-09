@@ -123,6 +123,8 @@
         #bottomNav { padding-bottom: env(safe-area-inset-bottom, 0px); }
         header.sticky { padding-top: env(safe-area-inset-top, 0px); }
         button, a { -webkit-tap-highlight-color: transparent; }
+            /* Cadastro obrigatório na primeira entrada: sem botão de fechar */
+        #profileModal.onboarding [onclick="closeProfileModal()"] { display: none; }
     </style>
 </head>
 <body id="appBody" class="min-h-screen flex flex-col selection:bg-brand-crimson selection:text-white pb-28">
@@ -2202,6 +2204,39 @@
         saveLocalState = function () { _saveLocal(); clearTimeout(syncTimer); syncTimer = setTimeout(syncProfileNow, 1200); };
 
         if (sb) sb.auth.onAuthStateChange(() => setTimeout(renderCloud, 0)); else renderCloud();
+    
+        // ==========================================
+        // PRIMEIRA ENTRADA: CADASTRO AUTOMÁTICO
+        // ==========================================
+        const ONB_KEY = 'fitmonster_onboarded';
+        let onbOriginal = null;
+        function startOnboarding() {
+            const modal = $('profileModal');
+            openProfileModal();
+            $('inputProfileName').value = '';
+            const t = modal.querySelector('h3'), s = modal.querySelector('p');
+            onbOriginal = { t: t.innerHTML, s: s.innerHTML };
+            t.innerHTML = '<i class="fa-solid fa-hand-fist text-brand-crimson"></i> Bem-vindo, guerreiro!';
+            s.innerHTML = 'Preencha seus dados para montar o treino sob medida para o seu corpo.';
+            modal.classList.add('onboarding');
+        }
+        function finishOnboarding() {
+            const modal = $('profileModal');
+            if (!modal.classList.contains('onboarding') || !modal.classList.contains('hidden')) return;
+            modal.classList.remove('onboarding');
+            if (onbOriginal) {
+                modal.querySelector('h3').innerHTML = onbOriginal.t;
+                modal.querySelector('p').innerHTML = onbOriginal.s;
+            }
+            try { localStorage.setItem(ONB_KEY, '1'); } catch (e) {}
+            $('cloudName').value = userProfile.name || '';
+        }
+        const _saveProfile = saveUserProfile;
+        saveUserProfile = function () { _saveProfile(); finishOnboarding(); };
+
+        let jaCadastrado = false;
+        try { jaCadastrado = !!localStorage.getItem(ONB_KEY); } catch (e) {}
+        if (!jaCadastrado) setTimeout(startOnboarding, 400);
     </script>
 </body>
 </html>
