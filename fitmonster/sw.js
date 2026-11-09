@@ -1,4 +1,4 @@
-const CACHE = 'fitmonster-v2';
+const CACHE = 'fitmonster-v3';
 const SHELL = ['/', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
