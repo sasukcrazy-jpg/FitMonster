@@ -44,6 +44,8 @@
 
     <!-- FontAwesome Ícones -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Supabase (clã online) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.9/dist/umd/supabase.js"></script>
     <!-- Canvas Confetti -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
 
@@ -383,6 +385,34 @@
         </section>
 
         <!-- CLÃ & DUELOS DE FORÇA (PVP) -->
+        <section data-tab="cla" class="bg-brand-surface border border-brand-border rounded-3xl p-5 sm:p-7 space-y-4">
+            <div>
+                <h3 class="text-lg sm:text-xl font-black text-white uppercase flex items-center gap-2"><i class="fa-solid fa-globe text-sky-400"></i> Clã Online</h3>
+                <p class="text-xs text-slate-400">Entre na sua conta para ver o progresso real dos seus amigos.</p>
+            </div>
+            <div id="cloudOut" class="hidden space-y-3">
+                <input id="cloudName" type="text" placeholder="Seu apelido" class="w-full bg-brand-dark border border-brand-border rounded-xl px-4 py-3 text-sm text-white">
+                <input id="cloudEmail" type="email" placeholder="E-mail" class="w-full bg-brand-dark border border-brand-border rounded-xl px-4 py-3 text-sm text-white">
+                <input id="cloudPass" type="password" placeholder="Senha (mínimo 6 caracteres)" class="w-full bg-brand-dark border border-brand-border rounded-xl px-4 py-3 text-sm text-white">
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="cloudAuth('signin')" class="py-3 rounded-xl bg-gradient-to-r from-brand-crimson to-brand-flame text-white font-black uppercase text-sm">Entrar</button>
+                    <button onclick="cloudAuth('signup')" class="py-3 rounded-xl border border-brand-border text-white font-black uppercase text-sm">Criar conta</button>
+                </div>
+            </div>
+            <div id="cloudIn" class="hidden space-y-4">
+                <div class="flex items-center justify-between gap-3 bg-brand-dark border border-brand-border rounded-2xl p-4">
+                    <div><span class="text-[10px] font-black uppercase text-slate-400 block">Seu código de convite</span><span id="myInviteCode" class="text-2xl font-black text-sky-300 tracking-widest">------</span></div>
+                    <button onclick="copyInviteCode()" class="px-4 py-2 rounded-xl border border-sky-400/60 text-sky-300 text-xs font-black uppercase">Copiar</button>
+                </div>
+                <div class="flex gap-2">
+                    <input id="friendCodeInput" type="text" maxlength="6" placeholder="Código do amigo" class="flex-1 bg-brand-dark border border-brand-border rounded-xl px-4 py-3 text-sm text-white uppercase">
+                    <button onclick="addFriendByCode()" class="px-5 rounded-xl bg-sky-500 text-black font-black uppercase text-sm">Adicionar</button>
+                </div>
+                <div id="cloudFriends" class="space-y-2"></div>
+                <button onclick="cloudSignOut()" class="text-xs font-bold text-slate-400 underline">Sair da conta</button>
+            </div>
+        </section>
+
         <section data-tab="cla" class="space-y-4">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
@@ -2097,6 +2127,81 @@
         switchTab('home');
         renderPro();
         checkPaymentReturn();
+    
+        // ==========================================
+        // CLÃ ONLINE (Supabase)
+        // ==========================================
+        const SB_URL = 'https://jlrhdfwlichowvkyzpau.supabase.co';
+        const SB_KEY = 'sb_publishable_JK7OPU2US1SPSE-76ybkdQ_N-Lcjf8O';
+        let sb = null;
+        try { sb = supabase.createClient(SB_URL, SB_KEY); } catch (e) { console.error(e); }
+        const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const $ = id => document.getElementById(id);
+
+        async function cloudAuth(mode) {
+            if (!sb) return alertCustom('Serviço online indisponível no momento.');
+            const email = $('cloudEmail').value.trim(), password = $('cloudPass').value;
+            if (!email || password.length < 6) return alertCustom('Digite um e-mail válido e uma senha de pelo menos 6 caracteres.');
+            const name = $('cloudName').value.trim() || userProfile.name || 'Guerreiro';
+            const { data, error } = mode === 'signup'
+                ? await sb.auth.signUp({ email, password, options: { data: { name } } })
+                : await sb.auth.signInWithPassword({ email, password });
+            if (error) return alertCustom('Não foi possível entrar: ' + error.message);
+            if (mode === 'signup' && !data.session) alertCustom('Conta criada! Confirme o e-mail que enviamos e depois toque em Entrar.');
+        }
+        async function cloudSignOut() { await sb.auth.signOut(); }
+
+        async function renderCloud() {
+            if (!sb) { $('cloudOut').classList.remove('hidden'); return; }
+            const { data: { session } } = await sb.auth.getSession();
+            $('cloudOut').classList.toggle('hidden', !!session);
+            $('cloudIn').classList.toggle('hidden', !session);
+            if (!session) return;
+            await syncProfileNow();
+            const { data: me } = await sb.from('profiles').select('invite_code').eq('id', session.user.id).maybeSingle();
+            if (me) $('myInviteCode').innerText = me.invite_code;
+            await loadCloudFriends(session.user.id);
+        }
+        async function loadCloudFriends(uid) {
+            const { data, error } = await sb.from('profiles').select('name,level,xp,streak,gym').neq('id', uid).order('xp', { ascending: false });
+            const box = $('cloudFriends');
+            if (error) { box.innerHTML = '<p class="text-xs text-red-400">Erro ao carregar amigos.</p>'; return; }
+            box.innerHTML = data.length ? data.map(f => {
+                const tier = beastTiers.find(t => t.level === f.level) || beastTiers[0];
+                return '<div class="flex items-center justify-between bg-brand-dark border border-brand-border rounded-xl p-3">'
+                    + '<div><span class="block text-sm font-black text-white">' + esc(f.name) + '</span><span class="text-[11px] text-slate-400">' + esc(tier.title) + (f.gym ? ' • ' + esc(f.gym) : '') + '</span></div>'
+                    + '<div class="text-right text-xs font-black"><span class="text-brand-flame block"><i class="fa-solid fa-fire"></i> ' + Number(f.streak) + ' dias</span><span class="text-slate-300">' + Number(f.xp) + ' XP</span></div></div>';
+            }).join('') : '<p class="text-xs text-slate-400">Nenhum amigo ainda. Troque códigos de convite para começar.</p>';
+        }
+        async function addFriendByCode() {
+            const code = $('friendCodeInput').value.trim();
+            if (!code) return;
+            const { data, error } = await sb.rpc('add_friend_by_code', { code });
+            if (error) return alertCustom(error.message);
+            $('friendCodeInput').value = '';
+            alertCustom(data + ' agora faz parte do seu clã!');
+            renderCloud();
+        }
+        function copyInviteCode() {
+            const c = $('myInviteCode').innerText;
+            if (navigator.clipboard) navigator.clipboard.writeText(c).then(() => alertCustom('Código copiado: ' + c)).catch(() => alertCustom('Seu código: ' + c));
+            else alertCustom('Seu código: ' + c);
+        }
+        async function syncProfileNow() {
+            if (!sb) return;
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) return;
+            await sb.from('profiles').update({
+                name: userProfile.name || 'Guerreiro', level: gameState.level, xp: gameState.xp,
+                streak: gameState.streak, gym: userProfile.gym || null, updated_at: new Date().toISOString()
+            }).eq('id', session.user.id);
+        }
+        // Sempre que o app salva o progresso local, envia uma cópia ao clã (com pequena espera)
+        let syncTimer = null;
+        const _saveLocal = saveLocalState;
+        saveLocalState = function () { _saveLocal(); clearTimeout(syncTimer); syncTimer = setTimeout(syncProfileNow, 1200); };
+
+        if (sb) sb.auth.onAuthStateChange(() => setTimeout(renderCloud, 0)); else renderCloud();
     </script>
 </body>
 </html>
